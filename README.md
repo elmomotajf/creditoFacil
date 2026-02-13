@@ -15,7 +15,7 @@ Um sistema elegante e completo para rastrear empréstimos pessoais a amigos, ger
 ## 🛠️ Stack Tecnológico
 
 - **Backend**: Node.js + Express
-- **Database**: PostgreSQL com Prisma ORM
+- **Database**: Firebase Realtime Database
 - **Frontend**: HTML5 + CSS3 + JavaScript Puro (Vanilla JS)
 - **Storage**: AWS S3 para armazenamento de fotos
 - **Autenticação**: bcryptjs para hash de senha
@@ -23,7 +23,7 @@ Um sistema elegante e completo para rastrear empréstimos pessoais a amigos, ger
 ## 📋 Pré-requisitos
 
 - Node.js 16+ instalado
-- PostgreSQL database (online ou local)
+- Conta Firebase com Realtime Database configurado
 - Conta AWS com acesso ao S3 (opcional, para upload de fotos)
 
 ## 🚀 Instalação e Setup
@@ -46,8 +46,12 @@ npm install
 Crie um arquivo `.env` na raiz do projeto:
 
 ```env
-# Database
-DATABASE_URL="postgresql://user:password@host:port/database_name"
+
+# Firebase
+FIREBASE_DATABASE_URL="https://<seu-projeto>.firebaseio.com"
+FIREBASE_CLIENT_EMAIL="<client-email-do-service-account>"
+FIREBASE_PRIVATE_KEY="<private-key-do-service-account>"
+FIREBASE_PROJECT_ID="<project-id>"
 
 # JWT Secret
 JWT_SECRET="sua-chave-secreta-muito-forte-aqui"
@@ -65,11 +69,7 @@ NODE_ENV="development"
 
 ### 4. Configure o banco de dados
 
-Execute as migrações do Prisma:
 
-```bash
-npm run db:push
-```
 
 ### 5. Inicie o servidor
 
@@ -97,12 +97,13 @@ O servidor estará rodando em `http://localhost:3000`
 
 1. Clique em "Novo Empréstimo"
 2. Preencha os dados:
-   - Nome do amigo
-   - Valor inicial
-   - Taxa de juros (%)
-   - Data final de pagamento
-   - Número de parcelas
-3. Clique em "Criar Empréstimo"
+  - Nome do amigo
+  - Valor inicial
+  - Taxa de juros (%)
+  - Data final de pagamento
+  - Número de parcelas
+3. O valor total do empréstimo será calculado automaticamente e exibido na tela conforme você preenche os campos.
+4. Clique em "Criar Empréstimo"
 
 ### Gerenciando Parcelas
 
@@ -117,6 +118,10 @@ O dashboard mostra:
 - Empréstimos ativos
 - Empréstimos concluídos
 - Pagamentos atrasados
+
+### Exportando Dados
+
+No dashboard, clique no botão "Exportar Dados" para baixar todos os empréstimos e parcelas em formato CSV para análise ou backup.
 - Lucro total
 - Lista de próximos pagamentos
 
@@ -176,8 +181,11 @@ Crie um arquivo `vercel.json` na raiz:
 
 ### 2. Configure variáveis de ambiente na Vercel
 
-No dashboard da Vercel, adicione as variáveis:
-- `DATABASE_URL`
+- No dashboard da Vercel, adicione as variáveis:
+- `FIREBASE_DATABASE_URL`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY`
+- `FIREBASE_PROJECT_ID`
 - `JWT_SECRET`
 - `AWS_REGION`
 - `AWS_ACCESS_KEY_ID`
@@ -196,9 +204,9 @@ vercel
 ### Erro de conexão com banco de dados
 
 Verifique se:
-- A URL do banco de dados está correta
-- O banco de dados está acessível
-- As credenciais estão corretas
+- A URL do Firebase está correta
+- O arquivo serviceAccountKey.json está presente e correto
+- As credenciais do Firebase estão corretas
 
 ### Erro ao fazer upload de fotos
 

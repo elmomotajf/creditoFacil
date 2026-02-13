@@ -1,0 +1,155 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    
+    "loans": {
+      ".indexOn": ["createdAt", "status", "friendName"],
+      "$loanId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['id', 'friendName', 'initialValue', 'interestRate', 'totalValue', 'profit', 'loanDate', 'finalPaymentDate', 'status', 'createdAt', 'updatedAt'])",
+        
+        "id": {
+          ".validate": "newData.isString() && newData.val() === $loanId"
+        },
+        "friendName": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 255"
+        },
+        "friendEmail": {
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^[^@]+@[^@]+\\.[^@]+$/))"
+        },
+        "friendPhone": {
+          ".validate": "!newData.exists() || newData.isString()"
+        },
+        "initialValue": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "interestRate": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+        },
+        "latePaymentPenalty": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+        },
+        "totalValue": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "profit": {
+          ".validate": "newData.isNumber()"
+        },
+        "totalLateFees": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "loanDate": {
+          ".validate": "newData.isString()"
+        },
+        "finalPaymentDate": {
+          ".validate": "newData.isString()"
+        },
+        "status": {
+          ".validate": "newData.isString() && (newData.val() === 'active' || newData.val() === 'completed' || newData.val() === 'cancelled')"
+        },
+        "notes": {
+          ".validate": "!newData.exists() || newData.isString()"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber() && (newData.val() === now || data.exists())"
+        },
+        "updatedAt": {
+          ".validate": "newData.isNumber() && newData.val() === now"
+        },
+        
+        "installments": {
+          ".indexOn": ["installmentNumber", "status", "dueDate"],
+          "$installmentId": {
+            ".read": "auth != null",
+            ".write": "auth != null",
+            ".validate": "newData.hasChildren(['id', 'installmentNumber', 'value', 'dueDate', 'status', 'createdAt', 'updatedAt'])",
+            
+            "id": {
+              ".validate": "newData.isString() && newData.val() === $installmentId"
+            },
+            "installmentNumber": {
+              ".validate": "newData.isNumber() && newData.val() >= 1"
+            },
+            "value": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "dueDate": {
+              ".validate": "newData.isString()"
+            },
+            "paidDate": {
+              ".validate": "!newData.exists() || newData.isString()"
+            },
+            "status": {
+              ".validate": "newData.isString() && (newData.val() === 'pending' || newData.val() === 'paid' || newData.val() === 'overdue')"
+            },
+            "createdAt": {
+              ".validate": "newData.isNumber() && (newData.val() === now || data.exists())"
+            },
+            "updatedAt": {
+              ".validate": "newData.isNumber() && newData.val() === now"
+            },
+            
+            "proofs": {
+              "$proofId": {
+                ".read": "auth != null",
+                ".write": "auth != null",
+                ".validate": "newData.hasChildren(['id', 'imageUrl', 'imageKey', 'uploadedAt', 'createdAt'])",
+                
+                "id": {
+                  ".validate": "newData.isString() && newData.val() === $proofId"
+                },
+                "imageUrl": {
+                  ".validate": "newData.isString() && newData.val().length > 0"
+                },
+                "imageKey": {
+                  ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 500"
+                },
+                "uploadedAt": {
+                  ".validate": "newData.isNumber() && newData.val() === now"
+                },
+                "createdAt": {
+                  ".validate": "newData.isNumber() && newData.val() === now"
+                },
+                "$other": {
+                  ".validate": false
+                }
+              }
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    
+    "users": {
+      "$userId": {
+        ".read": "auth != null && auth.uid === $userId",
+        ".write": "auth != null && auth.uid === $userId",
+        ".validate": "newData.hasChildren(['id', 'email', 'passwordHash', 'name', 'createdAt'])"
+      }
+    },
+    
+    "notifications": {
+      ".indexOn": ["loanId", "status", "sentAt"],
+      "$notificationId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    
+    "communications": {
+      ".indexOn": ["loanId", "sentAt"],
+      "$commId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    }
+  }
+}

@@ -282,15 +282,18 @@ async function loadUpcomingPayments() {
 
       payments.forEach((payment) => {
         const dueDate = new Date(payment.dueDate).toLocaleDateString('pt-BR');
+        // ✅ CORREÇÃO: Usar payment.friendName (já vem do backend corrigido)
+        const friendName = payment.friendName || 'N/A';
+        
         html += `
           <tr>
-            <td>${payment.loan.friendName}</td>
+            <td>${friendName}</td>
             <td>#${payment.installmentNumber}</td>
             <td>R$ ${parseFloat(payment.value).toFixed(2)}</td>
             <td>${dueDate}</td>
             <td><span class="status-badge status-${payment.status}">${payment.status}</span></td>
             <td>
-              <button class="btn btn-small btn-success" onclick="markAsPaid('${payment.id}')">Pagar</button>
+              <button class="btn btn-small btn-success" onclick="markAsPaid('${payment.id}', '${payment.loanId}')">Pagar</button>
             </td>
           </tr>
         `;
@@ -512,15 +515,18 @@ async function loadUpcomingPaymentsPage() {
 
       payments.forEach((payment) => {
         const dueDate = new Date(payment.dueDate).toLocaleDateString('pt-BR');
+        // ✅ CORREÇÃO: Usar payment.friendName (já vem do backend corrigido)
+        const friendName = payment.friendName || 'N/A';
+        
         html += `
           <tr>
-            <td>${payment.loan.friendName}</td>
+            <td>${friendName}</td>
             <td>#${payment.installmentNumber}</td>
             <td>R$ ${parseFloat(payment.value).toFixed(2)}</td>
             <td>${dueDate}</td>
             <td><span class="status-badge status-${payment.status}">${payment.status}</span></td>
             <td>
-              <button class="btn btn-small btn-success" onclick="markAsPaid('${payment.id}')">Marcar como Pago</button>
+              <button class="btn btn-small btn-success" onclick="markAsPaid('${payment.id}', '${payment.loanId}')">Marcar como Pago</button>
             </td>
           </tr>
         `;
@@ -681,6 +687,11 @@ async function viewLoanDetails(loanId) {
       const loan = await response.json();
       app.currentLoan = loan;
 
+      // ✅ CORREÇÃO: Garantir que installments seja array
+      const installmentsArray = Array.isArray(loan.installments) 
+        ? loan.installments 
+        : (loan.installments ? Object.values(loan.installments) : []);
+
       const modal = document.createElement('div');
       modal.className = 'modal active';
       modal.id = 'loanDetailsModal';
@@ -712,7 +723,7 @@ async function viewLoanDetails(loanId) {
               </div>
               <div class="form-group">
                 <label>Juros por Atraso</label>
-                <p style="font-size: 18px; font-weight: 600;">${parseFloat(loan.latePaymentPenalty).toFixed(2)}%</p>
+                <p style="font-size: 18px; font-weight: 600;">${parseFloat(loan.latePaymentPenalty || 0).toFixed(2)}%</p>
               </div>
             </div>
             <div class="form-row">
@@ -722,7 +733,7 @@ async function viewLoanDetails(loanId) {
               </div>
               <div class="form-group">
                 <label>Multas Acumuladas</label>
-                <p style="font-size: 18px; font-weight: 600; color: var(--warning);">R$ ${parseFloat(loan.totalLateFees).toFixed(2)}</p>
+                <p style="font-size: 18px; font-weight: 600; color: var(--warning);">R$ ${parseFloat(loan.totalLateFees || 0).toFixed(2)}</p>
               </div>
             </div>
             <div class="form-group">
@@ -746,14 +757,14 @@ async function viewLoanDetails(loanId) {
                   </tr>
                 </thead>
                 <tbody>
-                  ${loan.installments.map((inst) => `
+                  ${installmentsArray.map((inst) => `
                     <tr>
                       <td>${inst.installmentNumber}</td>
                       <td>R$ ${parseFloat(inst.value).toFixed(2)}</td>
                       <td>${new Date(inst.dueDate).toLocaleDateString('pt-BR')}</td>
                       <td><span class="status-badge status-${inst.status}">${inst.status}</span></td>
                       <td>
-                        ${inst.status === 'pending' ? `<button class="btn btn-small btn-success" onclick="markAsPaid('${inst.id}')">Pagar</button>` : ''}
+                        ${inst.status === 'pending' ? `<button class="btn btn-small btn-success" onclick="markAsPaid('${inst.id}', '${loan.id}')">Pagar</button>` : ''}
                       </td>
                     </tr>
                   `).join('')}
@@ -774,7 +785,8 @@ async function viewLoanDetails(loanId) {
   }
 }
 
-async function markAsPaid(installmentId) {
+// ✅ CORREÇÃO CRÍTICA: Adicionar parâmetro loanId e enviar no body
+async function markAsPaid(installmentId, loanId) {
   try {
     const response = await fetch(`${API_URL}/api/installments/${installmentId}`, {
       method: 'PUT',
@@ -782,10 +794,19 @@ async function markAsPaid(installmentId) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${app.token}`,
       },
-      body: JSON.stringify({ status: 'paid' }),
+      body: JSON.stringify({ 
+        status: 'paid',
+        loanId: loanId  // ⚠️ OBRIGATÓRIO para Firebase
+      }),
     });
 
     if (response.ok) {
+      // Close modal if open
+      const modal = document.getElementById('loanDetailsModal');
+      if (modal) {
+        modal.remove();
+      }
+      
       // Reload the current page
       if (app.currentPage === 'dashboard') {
         loadDashboardContent();
@@ -794,9 +815,13 @@ async function markAsPaid(installmentId) {
       } else if (app.currentPage === 'upcoming') {
         loadUpcomingPaymentsPage();
       }
+    } else {
+      const error = await response.json();
+      alert('Erro ao marcar como pago: ' + (error.error || 'Erro desconhecido'));
     }
   } catch (error) {
     console.error('Error marking as paid:', error);
+    alert('Erro ao marcar como pago');
   }
 }
 
@@ -938,7 +963,9 @@ function getStatusLabel(status) {
   const labels = {
     'pending': 'Pendente',
     'paid': 'Pago',
-    'overdue': 'Atrasado'
+    'overdue': 'Atrasado',
+    'active': 'Ativo',
+    'completed': 'Concluído'
   };
   return labels[status] || status;
 }

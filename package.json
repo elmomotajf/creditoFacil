@@ -1,39 +1,46 @@
 {
-  "name": "payment-tracker",
+  "name": "payment-tracker-firebase",
   "version": "1.0.0",
-  "description": "Loan management system for tracking personal loans to friends",
-  "main": "server.js",
+  "description": "Sistema de gerenciamento de empréstimos para amigos usando Firebase",
   "type": "module",
+  "main": "server-firebase.js",
   "scripts": {
-    "dev": "node server.js",
-    "start": "node server.js",
-    "build": "echo 'Build completed'",
-    "db:push": "prisma migrate dev --name init",
-    "db:studio": "prisma studio"
+    "start": "node server-firebase.js",
+    "dev": "nodemon server-firebase.js",
+    "test": "jest --watchAll --verbose",
+    "test:once": "jest"
   },
   "keywords": [
-    "loans",
+    "loan",
+    "payment",
+    "tracking",
     "finance",
-    "tracking"
+    "firebase"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
-    "@prisma/client": "^5.8.0",
-    "aws-sdk": "^2.1550.0",
+    "aws-sdk": "^2.1691.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "firebase": "^12.9.0",
-    "firebase-admin": "^13.6.1",
-    "googleapis": "^171.2.0",
-    "multer": "^1.4.5-lts.1"
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "firebase-admin": "^12.6.0",
+    "google-auth-library": "^9.14.2",
+    "googleapis": "^144.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.15"
   },
   "devDependencies": {
-    "prisma": "^5.8.0"
+    "@types/node": "^22.9.0",
+    "jest": "^29.7.0",
+    "@jest/globals": "^29.7.0",
+    "nodemon": "^3.1.7"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   }
 }

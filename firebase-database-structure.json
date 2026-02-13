@@ -1,0 +1,117 @@
+{
+  "loans": {
+    "loan_id_1": {
+      "id": "loan_id_1",
+      "friendName": "João Silva",
+      "friendEmail": "joao@example.com",
+      "friendPhone": "+5532999999999",
+      "initialValue": 1000.00,
+      "interestRate": 10.00,
+      "latePaymentPenalty": 2.00,
+      "totalValue": 1100.00,
+      "profit": 100.00,
+      "totalLateFees": 0.00,
+      "loanDate": "2024-01-15T00:00:00.000Z",
+      "finalPaymentDate": "2024-12-15T00:00:00.000Z",
+      "status": "active",
+      "notes": "Empréstimo para reforma da casa",
+      "createdAt": 1705276800000,
+      "updatedAt": 1705276800000,
+      "installments": {
+        "installment_id_1": {
+          "id": "installment_id_1",
+          "installmentNumber": 1,
+          "value": 110.00,
+          "dueDate": "2024-02-15T00:00:00.000Z",
+          "paidDate": null,
+          "status": "pending",
+          "createdAt": 1705276800000,
+          "updatedAt": 1705276800000,
+          "proofs": {
+            "proof_id_1": {
+              "id": "proof_id_1",
+              "imageUrl": "https://s3.amazonaws.com/bucket/proof.jpg",
+              "imageKey": "proofs/1705276800000-proof.jpg",
+              "uploadedAt": 1705276800000,
+              "createdAt": 1705276800000
+            }
+          }
+        },
+        "installment_id_2": {
+          "id": "installment_id_2",
+          "installmentNumber": 2,
+          "value": 110.00,
+          "dueDate": "2024-03-15T00:00:00.000Z",
+          "paidDate": "2024-03-14T10:30:00.000Z",
+          "status": "paid",
+          "createdAt": 1705276800000,
+          "updatedAt": 1710417000000,
+          "proofs": {}
+        }
+      }
+    },
+    "loan_id_2": {
+      "id": "loan_id_2",
+      "friendName": "Maria Santos",
+      "friendEmail": "maria@example.com",
+      "friendPhone": "+5532988888888",
+      "initialValue": 5000.00,
+      "interestRate": 15.00,
+      "latePaymentPenalty": 3.00,
+      "totalValue": 5750.00,
+      "profit": 750.00,
+      "totalLateFees": 50.00,
+      "loanDate": "2024-02-01T00:00:00.000Z",
+      "finalPaymentDate": "2025-02-01T00:00:00.000Z",
+      "status": "active",
+      "notes": "Empréstimo para capital de giro",
+      "createdAt": 1706745600000,
+      "updatedAt": 1706745600000,
+      "installments": {
+        "installment_id_3": {
+          "id": "installment_id_3",
+          "installmentNumber": 1,
+          "value": 479.17,
+          "dueDate": "2024-03-01T00:00:00.000Z",
+          "paidDate": null,
+          "status": "overdue",
+          "createdAt": 1706745600000,
+          "updatedAt": 1706745600000,
+          "proofs": {}
+        }
+      }
+    }
+  },
+  "users": {
+    "admin": {
+      "id": "admin",
+      "email": "admin@paymenttracker.com",
+      "passwordHash": "$2a$10$hashedpassword",
+      "name": "Administrador",
+      "createdAt": 1705276800000
+    }
+  },
+  "notifications": {
+    "notification_id_1": {
+      "id": "notification_id_1",
+      "loanId": "loan_id_1",
+      "installmentId": "installment_id_1",
+      "type": "payment_reminder",
+      "status": "sent",
+      "sentAt": 1705276800000,
+      "message": "Lembrete: Parcela #1 vence em 3 dias"
+    }
+  },
+  "communications": {
+    "comm_id_1": {
+      "id": "comm_id_1",
+      "loanId": "loan_id_1",
+      "type": "email",
+      "subject": "Lembrete de pagamento",
+      "message": "Olá João, sua parcela vence em breve...",
+      "sentAt": 1705276800000,
+      "response": null,
+      "respondedAt": null
+    }
+  }
+}
