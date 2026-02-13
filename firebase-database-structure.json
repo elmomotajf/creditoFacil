@@ -82,6 +82,9 @@
       }
     }
   },
+  "auth": {
+    "passwordHash": "$2a$10$hashedpassword"
+  },
   "users": {
     "admin": {
       "id": "admin",

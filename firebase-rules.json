@@ -150,6 +150,13 @@
         ".read": "auth != null",
         ".write": "auth != null"
       }
+    },
+    "auth": {
+      ".read": false,
+      ".write": false,
+      "passwordHash": {
+        ".validate": "newData.isString() && newData.val().length > 0"
+      }
     }
   }
 }

@@ -62,6 +62,17 @@ let googleCalendarToken = null;
 let passwordHash = null;
 let isPasswordSet = false;
 
+// Load password hash from Firebase
+async function loadPasswordHash() {
+  const ref = db().ref('auth/passwordHash');
+  const snapshot = await ref.once('value');
+  passwordHash = snapshot.val();
+  isPasswordSet = !!passwordHash;
+}
+
+// Call on server start
+loadPasswordHash();
+
 // Calculate payment status based on installments
 function calculatePaymentStatus(installments) {
   if (!installments || Object.keys(installments).length === 0) {
@@ -106,17 +117,17 @@ async function initializePassword() {
 // Authentication middleware
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
-  
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-
-  // Simple token validation (in production, use JWT)
-  if (token !== process.env.SESSION_TOKEN) {
-    return res.status(401).json({ error: 'Invalid token' });
+  const jwt = require('jsonwebtoken');
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
   }
-
-  next();
 };
 
 // Routes
@@ -137,7 +148,8 @@ app.post('/api/auth/setup-password', async (req, res) => {
     const hash = await bcryptjs.hash(password, 10);
     passwordHash = hash;
     isPasswordSet = true;
-
+    // Save hash to Firebase
+    await db().ref('auth/passwordHash').set(hash);
     res.json({ success: true, message: 'Password set successfully' });
   } catch (error) {
     console.error('Error setting password:', error);
@@ -148,26 +160,22 @@ app.post('/api/auth/setup-password', async (req, res) => {
 // 2. Password Login
 app.post('/api/auth/login', async (req, res) => {
   try {
+    // Always reload hash from Firebase
+    await loadPasswordHash();
     if (!isPasswordSet) {
       return res.status(400).json({ error: 'Password not set up yet' });
     }
-
     const { password } = req.body;
-
     if (!password) {
       return res.status(400).json({ error: 'Password required' });
     }
-
     const isValid = await bcryptjs.compare(password, passwordHash);
-
     if (!isValid) {
       return res.status(401).json({ error: 'Invalid password' });
     }
-
-    // Generate a simple session token
-    const token = Buffer.from(`${Date.now()}:${Math.random()}`).toString('base64');
-    process.env.SESSION_TOKEN = token;
-
+    // Generate JWT token
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign({ user: 'admin' }, process.env.JWT_SECRET, { expiresIn: '12h' });
     res.json({ success: true, token });
   } catch (error) {
     console.error('Error during login:', error);
