@@ -10,6 +10,8 @@ import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import {
   initializeFirebase,
+  isFirebaseReady,
+  getFirebaseInitErrorMessage,
   db,
   createLoan,
   getLoans,
@@ -37,14 +39,27 @@ const upload = multer({ storage: multer.memoryStorage() });
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+// Serve static files from the public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Configure AWS S3
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: process.env.AWS_REGION,
-});
+// Configure AWS S3 (only if real credentials are provided)
+const hasAwsCredentials =
+  process.env.AWS_ACCESS_KEY_ID &&
+  !process.env.AWS_ACCESS_KEY_ID.startsWith('your-') &&
+  process.env.AWS_SECRET_ACCESS_KEY &&
+  !process.env.AWS_SECRET_ACCESS_KEY.startsWith('your-');
+
+let s3 = null;
+if (hasAwsCredentials) {
+  s3 = new AWS.S3({
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    region: process.env.AWS_REGION,
+  });
+  console.log('✅ AWS S3 configured');
+} else {
+  console.warn('⚠️ AWS S3 not configured (placeholder credentials detected). File uploads will be disabled.');
+}
 
 // Configure Google Calendar OAuth
 let oauth2Client = null;
@@ -57,21 +72,6 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 }
 
 let googleCalendarToken = null;
-
-// Store password hash in memory (for single user)
-let passwordHash = null;
-let isPasswordSet = false;
-
-// Load password hash from Firebase
-async function loadPasswordHash() {
-  const ref = db().ref('auth/passwordHash');
-  const snapshot = await ref.once('value');
-  passwordHash = snapshot.val();
-  isPasswordSet = !!passwordHash;
-}
-
-// Call on server start
-loadPasswordHash();
 
 // Calculate payment status based on installments
 function calculatePaymentStatus(installments) {
@@ -102,40 +102,68 @@ function calculatePaymentStatus(installments) {
   }
 }
 
-// Initialize password from environment
-async function initializePassword() {
+// ==================== FIREBASE PASSWORD FUNCTIONS ====================
+
+async function getPasswordFromFirebase() {
   try {
-    if (process.env.ADMIN_PASSWORD_HASH) {
-      passwordHash = process.env.ADMIN_PASSWORD_HASH;
-      isPasswordSet = true;
-    }
+    const snapshot = await db().ref('system/passwordHash').once('value');
+    return snapshot.val();
   } catch (error) {
-    console.error('Error initializing password:', error);
+    console.error('Error getting password from Firebase:', error);
+    return null;
+  }
+}
+
+async function setPasswordInFirebase(passwordHash) {
+  try {
+    await db().ref('system').set({
+      passwordHash: passwordHash,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error setting password in Firebase:', error);
+    return false;
   }
 }
 
 // Authentication middleware
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
+  
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  const jwt = require('jsonwebtoken');
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+
+  // Simple token validation (in production, use JWT)
+  if (token !== process.env.SESSION_TOKEN) {
+    return res.status(401).json({ error: 'Invalid token' });
   }
+
+  next();
 };
 
 // Routes
 
+function ensureFirebaseReady(req, res, next) {
+  if (!isFirebaseReady()) {
+    return res.status(503).json({
+      error: 'Firebase is not initialized',
+      details: getFirebaseInitErrorMessage(),
+    });
+  }
+
+  next();
+}
+
 // 1. Password Setup (first time only)
-app.post('/api/auth/setup-password', async (req, res) => {
+app.post('/api/auth/setup-password', ensureFirebaseReady, async (req, res) => {
   try {
-    if (isPasswordSet) {
+    // Check if password already exists in Firebase
+    const existingPassword = await getPasswordFromFirebase();
+    
+    if (existingPassword) {
       return res.status(400).json({ error: 'Password already set' });
     }
 
@@ -146,10 +174,16 @@ app.post('/api/auth/setup-password', async (req, res) => {
     }
 
     const hash = await bcryptjs.hash(password, 10);
-    passwordHash = hash;
-    isPasswordSet = true;
-    // Save hash to Firebase
-    await db().ref('auth/passwordHash').set(hash);
+    
+    // Save to Firebase
+    const saved = await setPasswordInFirebase(hash);
+    
+    if (!saved) {
+      return res.status(500).json({
+        error: 'Failed to save password in Firebase. Check FIREBASE_DATABASE_URL and service account credentials.'
+      });
+    }
+
     res.json({ success: true, message: 'Password set successfully' });
   } catch (error) {
     console.error('Error setting password:', error);
@@ -158,24 +192,31 @@ app.post('/api/auth/setup-password', async (req, res) => {
 });
 
 // 2. Password Login
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', ensureFirebaseReady, async (req, res) => {
   try {
-    // Always reload hash from Firebase
-    await loadPasswordHash();
-    if (!isPasswordSet) {
+    // Get password from Firebase
+    const passwordHash = await getPasswordFromFirebase();
+    
+    if (!passwordHash) {
       return res.status(400).json({ error: 'Password not set up yet' });
     }
+
     const { password } = req.body;
+
     if (!password) {
       return res.status(400).json({ error: 'Password required' });
     }
+
     const isValid = await bcryptjs.compare(password, passwordHash);
+
     if (!isValid) {
       return res.status(401).json({ error: 'Invalid password' });
     }
-    // Generate JWT token
-    const jwt = require('jsonwebtoken');
-    const token = jwt.sign({ user: 'admin' }, process.env.JWT_SECRET, { expiresIn: '12h' });
+
+    // Generate a simple session token
+    const token = Buffer.from(`${Date.now()}:${Math.random()}`).toString('base64');
+    process.env.SESSION_TOKEN = token;
+
     res.json({ success: true, token });
   } catch (error) {
     console.error('Error during login:', error);
@@ -184,8 +225,14 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // 3. Check if password is set
-app.get('/api/auth/status', (req, res) => {
-  res.json({ passwordSet: isPasswordSet });
+app.get('/api/auth/status', ensureFirebaseReady, async (req, res) => {
+  try {
+    const passwordHash = await getPasswordFromFirebase();
+    res.json({ passwordSet: !!passwordHash });
+  } catch (error) {
+    console.error('Error checking auth status:', error);
+    res.json({ passwordSet: false });
+  }
 });
 
 // 4. Create Loan
@@ -365,6 +412,10 @@ app.put('/api/installments/:id', authMiddleware, async (req, res) => {
 // 10. Upload Payment Proof
 app.post('/api/upload-proof', authMiddleware, upload.single('file'), async (req, res) => {
   try {
+    if (!s3) {
+      return res.status(503).json({ error: 'File upload is not configured. AWS S3 credentials are missing.' });
+    }
+
     const { installmentId, loanId } = req.body;
 
     if (!loanId || !installmentId) {
@@ -604,23 +655,76 @@ app.get('/api/google/auth-status', (req, res) => {
   res.json({ authenticated: !!googleCalendarToken });
 });
 
-// Start server
-const PORT = process.env.PORT || 3000;
+// 19. Health Check
+app.get('/api/health', async (req, res) => {
+  const basePayload = {
+    status: 'ok',
+    service: 'creditoFacil',
+    environment: process.env.VERCEL ? 'vercel' : 'local',
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+  };
 
-initializePassword().then(() => {
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📊 Using Firebase Realtime Database`);
-  });
+  try {
+    await db().ref('system').child('healthcheck').once('value');
+    return res.status(200).json({
+      ...basePayload,
+      firebase: 'ok',
+    });
+  } catch (error) {
+    return res.status(503).json({
+      ...basePayload,
+      status: 'degraded',
+      firebase: 'error',
+      error: 'Firebase connection failed',
+    });
+  }
 });
+
+// Fallback: serve index.html for non-API routes (SPA support)
+app.get(/^(?!\/api).*/, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Start server
+const PREFERRED_PORT = Number(process.env.PORT) || 3000;
+const MAX_PORT_ATTEMPTS = 10;
+
+function startServer(port, attempts = 0) {
+  const server = app.listen(port, () => {
+    console.log(`🚀 Server running on port ${port}`);
+    console.log(`📊 Using Firebase Realtime Database`);
+    console.log(`🔐 Password storage: Firebase`);
+  });
+
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE' && !process.env.PORT && attempts < MAX_PORT_ATTEMPTS) {
+      const nextPort = port + 1;
+      console.warn(`⚠️ Port ${port} is in use. Trying ${nextPort}...`);
+      startServer(nextPort, attempts + 1);
+      return;
+    }
+
+    console.error('❌ Failed to start server:', error.message);
+    process.exit(1);
+  });
+}
+
+if (!process.env.VERCEL) {
+  startServer(PREFERRED_PORT);
+}
 
 // Graceful shutdown
-process.on('SIGINT', () => {
-  console.log('👋 Shutting down gracefully...');
-  process.exit(0);
-});
+if (!process.env.VERCEL) {
+  process.on('SIGINT', () => {
+    console.log('👋 Shutting down gracefully...');
+    process.exit(0);
+  });
 
-process.on('SIGTERM', () => {
-  console.log('👋 Shutting down gracefully...');
-  process.exit(0);
-});
+  process.on('SIGTERM', () => {
+    console.log('👋 Shutting down gracefully...');
+    process.exit(0);
+  });
+}
+
+export default app;

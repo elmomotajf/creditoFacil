@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "server.js",
+      "src": "server-firebase.js",
       "use": "@vercel/node"
     },
     {
@@ -13,28 +13,19 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "server.js"
+      "dest": "server-firebase.js"
     },
     {
-      "src": "/public/(.*)",
+      "src": "/(.*\\.(?:js|css|png|jpg|jpeg|gif|svg|ico|webp|woff|woff2|ttf|eot))",
       "dest": "public/$1"
     },
     {
+      "src": "/",
+      "dest": "/public/index.html"
+    },
+    {
       "src": "/(.*)",
-      "dest": "public/index.html"
+      "dest": "/public/index.html"
     }
-  ],
-  "env": {
-    "FIREBASE_PROJECT_ID": "",
-    "FIREBASE_PRIVATE_KEY": "",
-    "FIREBASE_CLIENT_EMAIL": "",
-    "FIREBASE_DATABASE_URL": "",
-    "FIREBASE_STORAGE_BUCKET": "",
-    "JWT_SECRET": "",
-    "AWS_REGION": "",
-    "AWS_ACCESS_KEY_ID": "",
-    "AWS_SECRET_ACCESS_KEY": "",
-    "AWS_S3_BUCKET": "",
-    "NODE_ENV": "production"
-  }
+  ]
 }

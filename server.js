@@ -37,6 +37,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+// Serve static files from the public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Configure AWS S3
@@ -594,6 +595,37 @@ app.post('/api/google/sync-installments', authMiddleware, async (req, res) => {
 // 18. Check Google Calendar Auth Status
 app.get('/api/google/auth-status', (req, res) => {
   res.json({ authenticated: !!googleCalendarToken });
+});
+
+// 19. Health Check
+app.get('/api/health', async (req, res) => {
+  const basePayload = {
+    status: 'ok',
+    service: 'creditoFacil',
+    environment: process.env.VERCEL ? 'vercel' : 'local',
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+  };
+
+  try {
+    await db().ref('system').child('healthcheck').once('value');
+    return res.status(200).json({
+      ...basePayload,
+      firebase: 'ok',
+    });
+  } catch (error) {
+    return res.status(503).json({
+      ...basePayload,
+      status: 'degraded',
+      firebase: 'error',
+      error: 'Firebase connection failed',
+    });
+  }
+});
+
+// Fallback: serve index.html for non-API routes (SPA support)
+app.get(/^(?!\/api).*/, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Start server

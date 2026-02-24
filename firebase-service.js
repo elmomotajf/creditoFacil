@@ -27,19 +27,46 @@ const serviceAccountKey = {
 
 // Initialize Firebase Admin SDK
 let firebaseApp = null;
+let firebaseInitError = null;
 
 export function initializeFirebase() {
   if (!firebaseApp) {
-    firebaseApp = admin.initializeApp({
-      credential: admin.credential.cert(serviceAccountKey),
-      databaseURL: process.env.FIREBASE_DATABASE_URL,
-    });
-    console.log('✅ Firebase initialized successfully');
+    const databaseURL = process.env.FIREBASE_DATABASE_URL;
+
+    if (!databaseURL) {
+      console.warn('⚠️ FIREBASE_DATABASE_URL is not configured. Realtime Database calls may fail.');
+    }
+
+    try {
+      firebaseApp = admin.initializeApp({
+        credential: admin.credential.cert(serviceAccountKey),
+        ...(databaseURL ? { databaseURL } : {}),
+      });
+      firebaseInitError = null;
+      console.log('✅ Firebase initialized successfully');
+    } catch (error) {
+      firebaseInitError = error;
+      firebaseApp = null;
+      console.error('❌ Firebase initialization failed:', error.message);
+    }
   }
   return firebaseApp;
 }
 
-export const db = () => admin.database();
+export function isFirebaseReady() {
+  return !!firebaseApp;
+}
+
+export function getFirebaseInitErrorMessage() {
+  return firebaseInitError?.message || null;
+}
+
+export const db = () => {
+  if (!firebaseApp) {
+    throw new Error('Firebase is not initialized');
+  }
+  return admin.database(firebaseApp);
+};
 
 // ==================== LOANS OPERATIONS ====================
 

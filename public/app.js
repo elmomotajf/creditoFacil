@@ -8,27 +8,88 @@ const app = {
 };
 
 // API Base URL
-const API_URL = '';
+const API_URL =
+  window.location.hostname === 'localhost'
+    ? window.location.origin
+    : '';
+
+async function getErrorMessage(response, fallbackMessage) {
+  try {
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const errorData = await response.json();
+      return errorData.error || fallbackMessage;
+    }
+  } catch (_) {
+    // ignore parse errors and return fallback message
+  }
+
+  return fallbackMessage;
+}
+
+function showBootPage(message = 'Carregando...') {
+  const app_div = document.getElementById('app');
+  if (!app_div) {
+    return;
+  }
+
+  app_div.innerHTML = `
+    <div class="auth-container">
+      <div class="auth-card">
+        <h1>💰 Crédito Fácil</h1>
+        <p>${message}</p>
+      </div>
+    </div>
+  `;
+}
 
 // Initialize App
 async function initApp() {
+  showBootPage('Iniciando sistema...');
+
   // Check if password is set
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort('timeout'), 6000);
+
   try {
-    const response = await fetch(`${API_URL}/api/auth/status`);
+    const response = await fetch(`${API_URL}/api/auth/status`, {
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error('Auth status unavailable');
+    }
     const data = await response.json();
     app.passwordSet = data.passwordSet;
 
-    if (app.token) {
+    if (app.passwordSet && app.token) {
       app.currentPage = 'dashboard';
       loadDashboard();
     } else if (app.passwordSet) {
+      localStorage.removeItem('token');
+      app.token = null;
       showLoginPage();
     } else {
+      localStorage.removeItem('token');
+      app.token = null;
       showPasswordSetupPage();
     }
   } catch (error) {
-    console.error('Error checking auth status:', error);
-    showLoginPage();
+    if (error?.name === 'AbortError') {
+      console.warn('Auth status request timed out.');
+    } else {
+      console.error('Error checking auth status:', error);
+    }
+
+    // If backend is unavailable, prefer first-use setup view.
+    showPasswordSetupPage();
+
+    const passwordError = document.getElementById('passwordError');
+    if (passwordError) {
+      passwordError.textContent = 'Servidor indisponível. Inicie o backend e tente novamente.';
+    }
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -39,20 +100,20 @@ function showPasswordSetupPage() {
   app_div.innerHTML = `
     <div class="auth-container">
       <div class="auth-card">
-        <h1>🔐 Configurar Senha</h1>
-        <p>Defina uma senha forte para acessar seu sistema de empréstimos</p>
+        <h1>💰 Crédito Fácil</h1>
+        <p>Configure sua senha de acesso</p>
         <form id="setupPasswordForm" onsubmit="handlePasswordSetup(event)">
           <div class="form-group">
             <label for="password">Senha</label>
-            <input type="password" id="password" name="password" required minlength="8" placeholder="Mínimo 8 caracteres">
+            <input type="password" id="password" name="password" required minlength="8" placeholder="Mínimo 8 caracteres" autocomplete="new-password">
             <div class="error-message" id="passwordError"></div>
           </div>
           <div class="form-group">
             <label for="confirmPassword">Confirmar Senha</label>
-            <input type="password" id="confirmPassword" name="confirmPassword" required minlength="8" placeholder="Confirme a senha">
+            <input type="password" id="confirmPassword" name="confirmPassword" required minlength="8" placeholder="Confirme a senha" autocomplete="new-password">
             <div class="error-message" id="confirmError"></div>
           </div>
-          <button type="submit" class="btn btn-primary">Configurar Senha</button>
+          <button type="submit" class="btn btn-primary">🔐 Configurar Senha</button>
         </form>
       </div>
     </div>
@@ -64,15 +125,15 @@ function showLoginPage() {
   app_div.innerHTML = `
     <div class="auth-container">
       <div class="auth-card">
-        <h1>🔑 Acessar Sistema</h1>
-        <p>Digite sua senha para acessar o gerenciador de empréstimos</p>
+        <h1>💰 Crédito Fácil</h1>
+        <p>Digite sua senha para acessar</p>
         <form id="loginForm" onsubmit="handleLogin(event)">
           <div class="form-group">
             <label for="loginPassword">Senha</label>
-            <input type="password" id="loginPassword" name="password" required placeholder="Digite sua senha">
+            <input type="password" id="loginPassword" name="password" required placeholder="Digite sua senha" autocomplete="current-password">
             <div class="error-message" id="loginError"></div>
           </div>
-          <button type="submit" class="btn btn-primary">Entrar</button>
+          <button type="submit" class="btn btn-primary">🔑 Entrar</button>
         </form>
       </div>
     </div>
@@ -100,12 +161,12 @@ async function handlePasswordSetup(event) {
       app.passwordSet = true;
       showLoginPage();
     } else {
-      const error = await response.json();
-      document.getElementById('passwordError').textContent = error.error;
+      const message = await getErrorMessage(response, 'Erro ao configurar senha');
+      document.getElementById('passwordError').textContent = message;
     }
   } catch (error) {
     console.error('Error setting password:', error);
-    document.getElementById('passwordError').textContent = 'Erro ao configurar senha';
+    document.getElementById('passwordError').textContent = 'Servidor indisponível. Verifique se o backend está rodando.';
   }
 }
 
@@ -127,12 +188,17 @@ async function handleLogin(event) {
       app.currentPage = 'dashboard';
       loadDashboard();
     } else {
-      const error = await response.json();
-      document.getElementById('loginError').textContent = error.error || 'Senha incorreta';
+      const message = await getErrorMessage(response, 'Senha incorreta');
+      if (message === 'Password not set up yet') {
+        app.passwordSet = false;
+        showPasswordSetupPage();
+        return;
+      }
+      document.getElementById('loginError').textContent = message;
     }
   } catch (error) {
     console.error('Error during login:', error);
-    document.getElementById('loginError').textContent = 'Erro ao fazer login';
+    document.getElementById('loginError').textContent = 'Servidor indisponível. Verifique se o backend está rodando.';
   }
 }
 
@@ -148,7 +214,7 @@ async function loadDashboard() {
       <div class="sidebar" id="sidebarMenu">
         <div class="sidebar-header">
           <div class="sidebar-logo">💰</div>
-          <div class="sidebar-title">Payment Tracker</div>
+          <div class="sidebar-title">Crédito Fácil</div>
         </div>
         <ul class="nav-menu">
           <li class="nav-item">
@@ -282,7 +348,6 @@ async function loadUpcomingPayments() {
 
       payments.forEach((payment) => {
         const dueDate = new Date(payment.dueDate).toLocaleDateString('pt-BR');
-        // ✅ CORREÇÃO: Usar payment.friendName (já vem do backend corrigido)
         const friendName = payment.friendName || 'N/A';
         
         html += `
@@ -355,7 +420,6 @@ async function loadLoansPage() {
         return;
       }
 
-      // Calculate status counts
       const statusCounts = {
         all: loans.length,
         pending: loans.filter(l => l.status === 'pending').length,
@@ -363,7 +427,6 @@ async function loadLoansPage() {
         overdue: loans.filter(l => l.status === 'overdue').length,
       };
 
-      // Calculate payment status counts
       const paymentStatusCounts = {
         all: loans.length,
         paid: loans.filter(l => l.paymentStatus === 'paid').length,
@@ -515,7 +578,6 @@ async function loadUpcomingPaymentsPage() {
 
       payments.forEach((payment) => {
         const dueDate = new Date(payment.dueDate).toLocaleDateString('pt-BR');
-        // ✅ CORREÇÃO: Usar payment.friendName (já vem do backend corrigido)
         const friendName = payment.friendName || 'N/A';
         
         html += `
@@ -567,11 +629,11 @@ function showCreateLoanModal() {
           <div class="form-row">
             <div class="form-group">
               <label for="initialValue">Valor Inicial (R$)</label>
-              <input type="number" id="initialValue" name="initialValue" required step="0.01" placeholder="0.00">
+              <input type="number" id="initialValue" name="initialValue" required step="0.01" placeholder="0.00" oninput="calculateLoanValues()">
             </div>
             <div class="form-group">
               <label for="interestRate">Taxa de Juros (%)</label>
-              <input type="number" id="interestRate" name="interestRate" required step="0.01" placeholder="0.00">
+              <input type="number" id="interestRate" name="interestRate" required step="0.01" placeholder="0.00" oninput="calculateLoanValues()">
             </div>
           </div>
           <div class="form-row">
@@ -687,7 +749,6 @@ async function viewLoanDetails(loanId) {
       const loan = await response.json();
       app.currentLoan = loan;
 
-      // ✅ CORREÇÃO: Garantir que installments seja array
       const installmentsArray = Array.isArray(loan.installments) 
         ? loan.installments 
         : (loan.installments ? Object.values(loan.installments) : []);
@@ -785,7 +846,6 @@ async function viewLoanDetails(loanId) {
   }
 }
 
-// ✅ CORREÇÃO CRÍTICA: Adicionar parâmetro loanId e enviar no body
 async function markAsPaid(installmentId, loanId) {
   try {
     const response = await fetch(`${API_URL}/api/installments/${installmentId}`, {
@@ -796,18 +856,16 @@ async function markAsPaid(installmentId, loanId) {
       },
       body: JSON.stringify({ 
         status: 'paid',
-        loanId: loanId  // ⚠️ OBRIGATÓRIO para Firebase
+        loanId: loanId
       }),
     });
 
     if (response.ok) {
-      // Close modal if open
       const modal = document.getElementById('loanDetailsModal');
       if (modal) {
         modal.remove();
       }
       
-      // Reload the current page
       if (app.currentPage === 'dashboard') {
         loadDashboardContent();
       } else if (app.currentPage === 'loans') {
@@ -953,10 +1011,6 @@ async function loadProfitChart() {
   }
 }
 
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', initApp);
-
-
 // ==================== Filter Functions ====================
 
 function getStatusLabel(status) {
@@ -984,7 +1038,6 @@ function filterLoans(status) {
   const rows = document.querySelectorAll('.loan-row');
   const buttons = document.querySelectorAll('.filter-btn');
   
-  // Update button states
   buttons.forEach(btn => {
     btn.classList.remove('active');
     if (btn.dataset.filter === status) {
@@ -992,7 +1045,6 @@ function filterLoans(status) {
     }
   });
   
-  // Filter rows
   rows.forEach(row => {
     if (status === 'all' || row.dataset.status === status) {
       row.style.display = '';
@@ -1053,12 +1105,10 @@ function filterLoansBySearch() {
 
 async function syncGoogleCalendar() {
   try {
-    // Check if already authenticated
     const statusResponse = await fetch(`${API_URL}/api/google/auth-status`);
     const status = await statusResponse.json();
 
     if (!status.authenticated) {
-      // Get auth URL and redirect
       const response = await fetch(`${API_URL}/api/google/auth-url`);
       const data = await response.json();
       
@@ -1068,7 +1118,6 @@ async function syncGoogleCalendar() {
         alert('Google Calendar não está configurado. Adicione as credenciais do Google Cloud Console.');
       }
     } else {
-      // Already authenticated, sync loans and installments
       await syncLoansToCalendar();
       await syncInstallmentsToCalendar();
     }
@@ -1135,22 +1184,6 @@ function calculateLoanValues() {
     }
   }
 }
-
-// Add event listeners to input fields for real-time calculation
-document.addEventListener('DOMContentLoaded', function() {
-  // Wait for modal to be created, then add listeners
-  setTimeout(() => {
-    const initialValueInput = document.getElementById('initialValue');
-    const interestRateInput = document.getElementById('interestRate');
-    
-    if (initialValueInput) {
-      initialValueInput.addEventListener('input', calculateLoanValues);
-    }
-    if (interestRateInput) {
-      interestRateInput.addEventListener('input', calculateLoanValues);
-    }
-  }, 100);
-});
 
 // Initialize app when page loads
 document.addEventListener('DOMContentLoaded', initApp);
