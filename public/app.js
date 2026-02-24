@@ -211,6 +211,7 @@ async function loadDashboard() {
       <button class="burger-menu" id="burgerMenuBtn" aria-label="Abrir menu">
         <span></span><span></span><span></span>
       </button>
+      <div class="sidebar-overlay" id="sidebarOverlay"></div>
       <div class="sidebar" id="sidebarMenu">
         <div class="sidebar-header">
           <div class="sidebar-logo">💰</div>
@@ -240,16 +241,50 @@ async function loadDashboard() {
         </div>
         <div id="content"></div>
       </div>
+      <nav class="mobile-nav" id="mobileNav">
+        <button class="mobile-nav-item active" id="mnav-dashboard" onclick="navigateTo('dashboard')">
+          <span class="mobile-nav-icon">📊</span>
+          <span class="mobile-nav-label">Dashboard</span>
+        </button>
+        <button class="mobile-nav-item" id="mnav-loans" onclick="navigateTo('loans')">
+          <span class="mobile-nav-icon">📋</span>
+          <span class="mobile-nav-label">Empréstimos</span>
+        </button>
+        <button class="mobile-nav-item" id="mnav-upcoming" onclick="navigateTo('upcoming')">
+          <span class="mobile-nav-icon">📅</span>
+          <span class="mobile-nav-label">Pagamentos</span>
+        </button>
+        <button class="mobile-nav-item" onclick="handleLogout()">
+          <span class="mobile-nav-icon">🚪</span>
+          <span class="mobile-nav-label">Sair</span>
+        </button>
+      </nav>
     </div>
   `;
 
-  // Burger menu toggle
+  // Burger menu + overlay toggle
   const burgerBtn = document.getElementById('burgerMenuBtn');
   const sidebarMenu = document.getElementById('sidebarMenu');
+  const sidebarOverlay = document.getElementById('sidebarOverlay');
+
+  function closeSidebar() {
+    sidebarMenu.classList.remove('open');
+    burgerBtn.classList.remove('active');
+    sidebarOverlay.classList.remove('active');
+  }
+
   if (burgerBtn && sidebarMenu) {
     burgerBtn.addEventListener('click', () => {
-      sidebarMenu.classList.toggle('open');
+      const isOpen = sidebarMenu.classList.toggle('open');
       burgerBtn.classList.toggle('active');
+      sidebarOverlay.classList.toggle('active', isOpen);
+    });
+
+    sidebarOverlay.addEventListener('click', closeSidebar);
+
+    // Close sidebar when a nav link is clicked on mobile
+    sidebarMenu.querySelectorAll('.nav-link').forEach(link => {
+      link.addEventListener('click', closeSidebar);
     });
   }
 
@@ -378,13 +413,32 @@ async function loadUpcomingPayments() {
 
 async function navigateTo(page) {
   app.currentPage = page;
-  const content = document.getElementById('content');
 
-  // Update active nav link
+  // Update sidebar nav active state
   document.querySelectorAll('.nav-link').forEach((link) => {
     link.classList.remove('active');
   });
-  event.target.classList.add('active');
+  if (event && event.target) event.target.classList.add('active');
+
+  // Update bottom mobile nav active state
+  document.querySelectorAll('.mobile-nav-item').forEach(item => item.classList.remove('active'));
+  const mnavItem = document.getElementById(`mnav-${page}`);
+  if (mnavItem) mnavItem.classList.add('active');
+
+  // Update header title
+  const headerH1 = document.querySelector('.header h1');
+  if (headerH1) {
+    const titles = { dashboard: 'Dashboard', loans: 'Empréstimos', upcoming: 'Próximos Pagamentos' };
+    headerH1.textContent = titles[page] || 'Dashboard';
+  }
+
+  // Show/hide "Novo Empréstimo" button only on loans page
+  const headerActions = document.querySelector('.header-actions');
+  if (headerActions) {
+    headerActions.innerHTML = page === 'loans'
+      ? `<button class="btn btn-primary" onclick="showCreateLoanModal()">+ Novo Empréstimo</button>`
+      : '';
+  }
 
   if (page === 'dashboard') {
     loadDashboardContent();
