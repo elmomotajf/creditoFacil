@@ -227,6 +227,9 @@ async function loadDashboard() {
           <li class="nav-item">
             <button class="nav-link" onclick="navigateTo('upcoming')">📅 Próximos Pagamentos</button>
           </li>
+          <li class="nav-item">
+            <button class="nav-link" onclick="syncGoogleCalendar()">🔄 Sincronizar Google Calendar</button>
+          </li>
         </ul>
         <div class="sidebar-footer">
           <button class="nav-link" onclick="handleLogout()">🚪 Sair</button>
@@ -302,13 +305,6 @@ async function loadDashboardContent() {
       const content = document.getElementById('content');
 
       content.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-          <h2 style="margin: 0; color: var(--text-primary);">Dashboard</h2>
-          <button class="btn btn-primary" onclick="syncGoogleCalendar()" style="display: flex; align-items: center; gap: 8px;">
-            <span>📅</span>
-            <span>Sincronizar Google Calendar</span>
-          </button>
-        </div>
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-label">Total de Empréstimos</div>
