@@ -1,8 +1,12 @@
 node_modules
 # Keep environment variables out of version control
 .env
+.env.local
+.env.production
+.env.development
 serviceAccountKey.json
 # Ignore build output
 dist
 .vercel
 .env*.local
+!.env.example

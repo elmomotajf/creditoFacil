@@ -1,108 +1,60 @@
-# Firebase Setup Guide
+# Firebase Setup
 
-Este guia ajudará você a configurar o Firebase Realtime Database para o Payment Tracker.
+## 1) Criar projeto e Realtime Database
 
-## 1. Criar um Projeto Firebase
+1. Acesse https://console.firebase.google.com/
+2. Crie o projeto.
+3. Ative Realtime Database.
+4. Copie a URL do banco (`https://<project>-default-rtdb.firebaseio.com`).
 
-1. Acesse [Firebase Console](https://console.firebase.google.com/)
-2. Clique em "Criar Projeto"
-3. Insira um nome para o projeto (ex: "payment-tracker")
-4. Desative "Google Analytics" (opcional) e clique em "Criar Projeto"
+## 2) Gerar credenciais de Service Account
 
-## 2. Configurar Realtime Database
+1. Projeto > Configurações > Contas de serviço.
+2. Gerar nova chave privada.
+3. Use os campos do JSON para preencher as variáveis de ambiente.
 
-1. No Firebase Console, vá para "Realtime Database"
-2. Clique em "Criar Banco de Dados"
-3. Selecione a localização mais próxima
-4. Inicie em modo de teste (você pode mudar as regras depois)
-5. Clique em "Ativar"
-
-## 3. Obter Credenciais de Serviço
-
-1. Vá para "Configurações do Projeto" (ícone de engrenagem)
-2. Clique em "Contas de Serviço"
-3. Clique em "Gerar Nova Chave Privada"
-4. Um arquivo JSON será baixado - este é seu `serviceAccountKey.json`
-
-## 4. Configurar Variáveis de Ambiente
-
-Crie um arquivo `.env` na raiz do projeto com:
+## 3) Variáveis obrigatórias
 
 ```env
-# Firebase Configuration
-FIREBASE_PROJECT_ID=seu-project-id
-FIREBASE_PRIVATE_KEY=sua-private-key
-FIREBASE_CLIENT_EMAIL=seu-client-email
-FIREBASE_DATABASE_URL=https://seu-project-id.firebaseio.com
-FIREBASE_STORAGE_BUCKET=seu-project-id.appspot.com
-
-# App Configuration
-PORT=3000
-NODE_ENV=production
+FIREBASE_TYPE=service_account
+FIREBASE_PROJECT_ID=
+FIREBASE_PRIVATE_KEY_ID=
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_CLIENT_ID=
+FIREBASE_AUTH_URI=https://accounts.google.com/o/oauth2/auth
+FIREBASE_TOKEN_URI=https://oauth2.googleapis.com/token
+FIREBASE_AUTH_PROVIDER_X509_CERT_URL=https://www.googleapis.com/oauth2/v1/certs
+FIREBASE_CLIENT_X509_CERT_URL=
+FIREBASE_UNIVERSE_DOMAIN=googleapis.com
+FIREBASE_DATABASE_URL=https://<project>-default-rtdb.firebaseio.com
 ```
 
-### Onde encontrar esses valores:
-
-- **FIREBASE_PROJECT_ID**: Na página de Configurações do Projeto
-- **FIREBASE_PRIVATE_KEY**: No arquivo JSON baixado (campo `private_key`)
-- **FIREBASE_CLIENT_EMAIL**: No arquivo JSON baixado (campo `client_email`)
-- **FIREBASE_DATABASE_URL**: No Realtime Database, clique em "Detalhes" e copie a URL
-
-## 5. Configurar Regras de Segurança (Importante!)
-
-No Firebase Console, vá para "Realtime Database" → "Regras" e adicione:
+## 4) Regras de segurança (base mínima)
 
 ```json
 {
   "rules": {
     "loans": {
-      ".read": "auth != null",
-      ".write": "auth != null",
-      "$loanId": {
-        ".validate": "newData.hasChildren(['friendName', 'initialValue', 'interestRate', 'totalValue', 'profit'])",
-        "installments": {
-          ".read": "auth != null",
-          ".write": "auth != null"
-        }
-      }
+      ".read": true,
+      ".write": true
+    },
+    "system": {
+      ".read": true,
+      ".write": true
     }
   }
 }
 ```
 
-## 6. Deploy na Vercel
+Ajuste as regras para seu cenário antes de produção.
 
-1. Faça push do seu código para um repositório GitHub
-2. Acesse [Vercel](https://vercel.com)
-3. Clique em "New Project" e selecione seu repositório
-4. Em "Environment Variables", adicione todas as variáveis do `.env`
-5. Clique em "Deploy"
+## 5) Verificação
 
-## 7. Variáveis de Ambiente na Vercel
+- Local: `GET /api/health` deve retornar `firebase: "ok"`.
+- Vercel: confirme as env vars em **Production** e faça redeploy.
 
-Adicione as seguintes variáveis no painel de configuração da Vercel:
+## Erros comuns
 
-- `FIREBASE_PROJECT_ID`
-- `FIREBASE_PRIVATE_KEY` (copie exatamente como está no JSON, incluindo `\n`)
-- `FIREBASE_CLIENT_EMAIL`
-- `FIREBASE_DATABASE_URL`
-- `FIREBASE_STORAGE_BUCKET`
-- `PORT=3000`
-- `NODE_ENV=production`
-
-## Troubleshooting
-
-### Erro: "Cannot find module 'firebase-admin'"
-Execute: `npm install firebase-admin`
-
-### Erro: "Permission denied" no Firebase
-Verifique as regras de segurança do Realtime Database
-
-### Erro: "Invalid service account"
-Verifique se a chave privada foi copiada corretamente (incluindo quebras de linha)
-
-## Próximos Passos
-
-1. Configure o Google Calendar (veja `GOOGLE_CALENDAR_SETUP.md`)
-2. Configure o AWS S3 para upload de fotos (opcional)
-3. Teste a aplicação localmente antes de fazer deploy
+- `Firebase is not initialized`: env vars faltando ou inválidas em Production.
+- `Invalid service account`: `FIREBASE_PRIVATE_KEY` incompleta ou mal formatada.

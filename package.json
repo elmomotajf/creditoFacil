@@ -7,8 +7,10 @@
   "scripts": {
     "start": "node server-firebase.js",
     "dev": "nodemon server-firebase.js",
-    "test": "jest --watchAll --verbose",
-    "test:once": "jest"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write ."
   },
   "keywords": [
     "loan",
@@ -25,10 +27,12 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
     "firebase-admin": "^12.6.0",
     "google-auth-library": "^9.14.2",
     "googleapis": "^144.0.0",
     "jsonwebtoken": "^9.0.2",
+    "helmet": "^8.0.0",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.9.15"
@@ -37,7 +41,10 @@
     "@types/node": "^22.9.0",
     "jest": "^29.7.0",
     "@jest/globals": "^29.7.0",
-    "nodemon": "^3.1.7"
+    "eslint": "^9.20.1",
+    "nodemon": "^3.1.7",
+    "prettier": "^3.4.2",
+    "supertest": "^7.1.0"
   },
   "engines": {
     "node": "24.x",

@@ -27,6 +27,33 @@ async function getErrorMessage(response, fallbackMessage) {
   return fallbackMessage;
 }
 
+function handleUnauthorizedResponse(response) {
+  if (response.status === 401) {
+    localStorage.removeItem('token');
+    app.token = null;
+    app.currentPage = 'login';
+    showLoginPage();
+    return true;
+  }
+
+  return false;
+}
+
+async function fetchWithAuth(url, options = {}) {
+  const headers = {
+    ...(options.headers || {}),
+    Authorization: `Bearer ${app.token}`,
+  };
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+
+  handleUnauthorizedResponse(response);
+  return response;
+}
+
 function showBootPage(message = 'Carregando...') {
   const app_div = document.getElementById('app');
   if (!app_div) {
@@ -296,9 +323,7 @@ async function loadDashboard() {
 
 async function loadDashboardContent() {
   try {
-    const response = await fetch(`${API_URL}/api/dashboard/summary`, {
-      headers: { 'Authorization': `Bearer ${app.token}` },
-    });
+    const response = await fetchWithAuth(`${API_URL}/api/dashboard/summary`);
 
     if (response.ok) {
       const summary = await response.json();
@@ -349,9 +374,7 @@ async function loadDashboardContent() {
 
 async function loadUpcomingPayments() {
   try {
-    const response = await fetch(`${API_URL}/api/dashboard/upcoming-payments`, {
-      headers: { 'Authorization': `Bearer ${app.token}` },
-    });
+    const response = await fetchWithAuth(`${API_URL}/api/dashboard/upcoming-payments`);
 
     if (response.ok) {
       const payments = await response.json();
@@ -413,8 +436,11 @@ async function navigateTo(page) {
   // Update sidebar nav active state
   document.querySelectorAll('.nav-link').forEach((link) => {
     link.classList.remove('active');
+    const handler = link.getAttribute('onclick') || '';
+    if (handler.includes(`navigateTo('${page}')`)) {
+      link.classList.add('active');
+    }
   });
-  if (event && event.target) event.target.classList.add('active');
 
   // Update bottom mobile nav active state
   document.querySelectorAll('.mobile-nav-item').forEach(item => item.classList.remove('active'));
@@ -450,9 +476,7 @@ async function loadLoansPage() {
   content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
   try {
-    const response = await fetch(`${API_URL}/api/loans`, {
-      headers: { 'Authorization': `Bearer ${app.token}` },
-    });
+    const response = await fetchWithAuth(`${API_URL}/api/loans`);
 
     if (response.ok) {
       const loans = await response.json();
@@ -472,9 +496,9 @@ async function loadLoansPage() {
 
       const statusCounts = {
         all: loans.length,
-        pending: loans.filter(l => l.status === 'pending').length,
-        paid: loans.filter(l => l.status === 'paid').length,
-        overdue: loans.filter(l => l.status === 'overdue').length,
+        active: loans.filter(l => l.status === 'active').length,
+        completed: loans.filter(l => l.status === 'completed').length,
+        cancelled: loans.filter(l => l.status === 'cancelled').length,
       };
 
       const paymentStatusCounts = {
@@ -502,14 +526,14 @@ async function loadLoansPage() {
             <button class="filter-btn active" onclick="filterLoans('all')" data-filter="all">
               📊 Todos <span class="filter-count">${statusCounts.all}</span>
             </button>
-            <button class="filter-btn" onclick="filterLoans('pending')" data-filter="pending">
-              ⏳ Pendentes <span class="filter-count">${statusCounts.pending}</span>
+            <button class="filter-btn" onclick="filterLoans('active')" data-filter="active">
+              ⏳ Ativos <span class="filter-count">${statusCounts.active}</span>
             </button>
-            <button class="filter-btn" onclick="filterLoans('paid')" data-filter="paid">
-              ✅ Pagos <span class="filter-count">${statusCounts.paid}</span>
+            <button class="filter-btn" onclick="filterLoans('completed')" data-filter="completed">
+              ✅ Concluídos <span class="filter-count">${statusCounts.completed}</span>
             </button>
-            <button class="filter-btn" onclick="filterLoans('overdue')" data-filter="overdue">
-              ⚠️ Atrasados <span class="filter-count">${statusCounts.overdue}</span>
+            <button class="filter-btn" onclick="filterLoans('cancelled')" data-filter="cancelled">
+              ❌ Cancelados <span class="filter-count">${statusCounts.cancelled}</span>
             </button>
             </div>
           </div>
@@ -592,9 +616,7 @@ async function loadUpcomingPaymentsPage() {
   content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
   try {
-    const response = await fetch(`${API_URL}/api/dashboard/upcoming-payments`, {
-      headers: { 'Authorization': `Bearer ${app.token}` },
-    });
+    const response = await fetchWithAuth(`${API_URL}/api/dashboard/upcoming-payments`);
 
     if (response.ok) {
       const payments = await response.json();
@@ -758,11 +780,10 @@ async function handleCreateLoan(event) {
   }
 
   try {
-    const response = await fetch(`${API_URL}/api/loans`, {
+    const response = await fetchWithAuth(`${API_URL}/api/loans`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${app.token}`,
       },
       body: JSON.stringify({
         friendName,
@@ -791,9 +812,7 @@ async function handleCreateLoan(event) {
 
 async function viewLoanDetails(loanId) {
   try {
-    const response = await fetch(`${API_URL}/api/loans/${loanId}`, {
-      headers: { 'Authorization': `Bearer ${app.token}` },
-    });
+    const response = await fetchWithAuth(`${API_URL}/api/loans/${loanId}`);
 
     if (response.ok) {
       const loan = await response.json();
@@ -898,11 +917,10 @@ async function viewLoanDetails(loanId) {
 
 async function markAsPaid(installmentId, loanId) {
   try {
-    const response = await fetch(`${API_URL}/api/installments/${installmentId}`, {
+    const response = await fetchWithAuth(`${API_URL}/api/installments/${installmentId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${app.token}`,
       },
       body: JSON.stringify({ 
         status: 'paid',
@@ -939,9 +957,8 @@ async function deleteLoan(loanId) {
   }
 
   try {
-    const response = await fetch(`${API_URL}/api/loans/${loanId}`, {
+    const response = await fetchWithAuth(`${API_URL}/api/loans/${loanId}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${app.token}` },
     });
 
     if (response.ok) {
@@ -963,9 +980,7 @@ function handleLogout() {
 
 async function loadProfitChart() {
   try {
-    const response = await fetch(`${API_URL}/api/dashboard/profit-trends`, {
-      headers: { 'Authorization': `Bearer ${app.token}` },
-    });
+    const response = await fetchWithAuth(`${API_URL}/api/dashboard/profit-trends`);
 
     if (response.ok) {
       const trends = await response.json();
@@ -976,11 +991,9 @@ async function loadProfitChart() {
       }
 
       const profitMap = {};
-      let accumulatedProfit = 0;
 
       trends.forEach((trend) => {
-        accumulatedProfit += trend.profit;
-        profitMap[trend.date] = accumulatedProfit;
+        profitMap[trend.date] = trend.cumulativeProfit;
       });
 
       const dates = Object.keys(profitMap).sort();
@@ -1065,11 +1078,9 @@ async function loadProfitChart() {
 
 function getStatusLabel(status) {
   const labels = {
-    'pending': 'Pendente',
-    'paid': 'Pago',
-    'overdue': 'Atrasado',
     'active': 'Ativo',
-    'completed': 'Concluído'
+    'completed': 'Concluído',
+    'cancelled': 'Cancelado',
   };
   return labels[status] || status;
 }
@@ -1179,9 +1190,8 @@ async function syncGoogleCalendar() {
 
 async function syncLoansToCalendar() {
   try {
-    const response = await fetch(`${API_URL}/api/google/sync-loans`, {
+    const response = await fetchWithAuth(`${API_URL}/api/google/sync-loans`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${app.token}` },
     });
 
     if (response.ok) {
@@ -1197,9 +1207,8 @@ async function syncLoansToCalendar() {
 
 async function syncInstallmentsToCalendar() {
   try {
-    const response = await fetch(`${API_URL}/api/google/sync-installments`, {
+    const response = await fetchWithAuth(`${API_URL}/api/google/sync-installments`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${app.token}` },
     });
 
     if (response.ok) {
@@ -1234,6 +1243,21 @@ function calculateLoanValues() {
     }
   }
 }
+
+window.handlePasswordSetup = handlePasswordSetup;
+window.handleLogin = handleLogin;
+window.navigateTo = navigateTo;
+window.showCreateLoanModal = showCreateLoanModal;
+window.handleCreateLoan = handleCreateLoan;
+window.viewLoanDetails = viewLoanDetails;
+window.markAsPaid = markAsPaid;
+window.deleteLoan = deleteLoan;
+window.handleLogout = handleLogout;
+window.filterLoans = filterLoans;
+window.filterByPaymentStatus = filterByPaymentStatus;
+window.filterLoansBySearch = filterLoansBySearch;
+window.syncGoogleCalendar = syncGoogleCalendar;
+window.calculateLoanValues = calculateLoanValues;
 
 // Initialize app when page loads
 document.addEventListener('DOMContentLoaded', initApp);

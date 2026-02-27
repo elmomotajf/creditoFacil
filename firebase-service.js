@@ -1,8 +1,6 @@
 import admin from 'firebase-admin';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 import dotenv from 'dotenv';
+import { buildProfitTrendSeries } from './utils/loan-utils.js';
 
 dotenv.config();
 
@@ -20,10 +18,6 @@ function normalizePrivateKey(value) {
 
   return unquoted.replace(/\\n/g, '\n');
 }
-
-// Get __dirname equivalent in ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 // Read service account key
 const serviceAccountKey = {
@@ -274,22 +268,7 @@ export async function getProfitTrends() {
     loans.push(childSnapshot.val());
   });
   
-  // Sort by creation date
-  loans.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-  
-  const trends = loans.map((loan, index) => {
-    const cumulativeProfit = loans
-      .slice(0, index + 1)
-      .reduce((sum, l) => sum + parseFloat(l.profit || 0), 0);
-    
-    return {
-      date: loan.loanDate ? new Date(loan.loanDate).toISOString().split('T')[0] : new Date(loan.createdAt).toISOString().split('T')[0],
-      profit: cumulativeProfit,
-      loanName: loan.friendName,
-    };
-  });
-  
-  return trends;
+  return buildProfitTrendSeries(loans);
 }
 
 // ==================== UPCOMING PAYMENTS ====================

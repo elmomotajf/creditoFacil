@@ -18,7 +18,6 @@ import {
   deleteLoan,
   createInstallment,
   updateInstallment,
-  getDashboardStats,
   getProfitTrends,
   getUpcomingPayments,
   createPaymentProof
@@ -613,7 +612,7 @@ app.get('/api/health', async (req, res) => {
       ...basePayload,
       firebase: 'ok',
     });
-  } catch (error) {
+  } catch (_error) {
     return res.status(503).json({
       ...basePayload,
       status: 'degraded',

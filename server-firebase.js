@@ -8,6 +8,9 @@ import multer from 'multer';
 import AWS from 'aws-sdk';
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
+import jwt from 'jsonwebtoken';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import {
   initializeFirebase,
   isFirebaseReady,
@@ -20,11 +23,16 @@ import {
   deleteLoan,
   createInstallment,
   updateInstallment,
-  getDashboardStats,
   getProfitTrends,
   getUpcomingPayments,
   createPaymentProof
 } from './firebase-service.js';
+import {
+  calculatePaymentStatusFromInstallments,
+  deriveLoanStatus,
+  generateInstallmentDates,
+  normalizeLoanStatus,
+} from './utils/loan-utils.js';
 
 dotenv.config();
 
@@ -34,9 +42,18 @@ const __dirname = path.dirname(__filename);
 const app = express();
 initializeFirebase();
 const upload = multer({ storage: multer.memoryStorage() });
+const jwtSecret = process.env.JWT_SECRET;
+
+if (!jwtSecret) {
+  console.warn('⚠️ JWT_SECRET is not configured. Authentication endpoints will fail until it is provided.');
+}
 
 // Middleware
-app.use(cors());
+app.use(helmet());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()) : true,
+  credentials: true,
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Serve static files from the public directory
@@ -71,35 +88,130 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   );
 }
 
-let googleCalendarToken = null;
-
-// Calculate payment status based on installments
-function calculatePaymentStatus(installments) {
-  if (!installments || Object.keys(installments).length === 0) {
-    return 'pending';
-  }
-
-  const now = new Date();
-  const installmentArray = Object.values(installments);
-  let totalInstallments = installmentArray.length;
-  let paidInstallments = 0;
-  let overdueInstallments = 0;
-
-  installmentArray.forEach((inst) => {
-    if (inst.status === 'paid') {
-      paidInstallments++;
-    } else if (inst.status === 'overdue' || (inst.status === 'pending' && new Date(inst.dueDate) < now)) {
-      overdueInstallments++;
+if (oauth2Client) {
+  oauth2Client.on('tokens', async (tokens) => {
+    if (tokens && Object.keys(tokens).length > 0) {
+      try {
+        await saveGoogleTokens(tokens);
+      } catch (error) {
+        console.error('Error saving refreshed Google tokens:', error.message);
+      }
     }
   });
+}
 
-  if (paidInstallments === totalInstallments) {
-    return 'paid';
-  } else if (overdueInstallments > 0) {
-    return 'overdue';
-  } else {
-    return 'pending';
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authentication attempts. Try again later.' },
+});
+
+function getInstallmentArray(installments) {
+  if (!installments) {
+    return [];
   }
+
+  return Array.isArray(installments) ? installments : Object.values(installments);
+}
+
+function parseDateInput(dateValue) {
+  if (typeof dateValue === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+    return new Date(`${dateValue}T00:00:00.000Z`);
+  }
+
+  return new Date(dateValue);
+}
+
+function validateCreateLoanPayload(payload) {
+  const errors = [];
+  const friendName = String(payload.friendName || '').trim();
+  const initialValue = Number.parseFloat(payload.initialValue);
+  const interestRate = Number.parseFloat(payload.interestRate);
+  const latePaymentPenalty = Number.parseFloat(payload.latePaymentPenalty || 0);
+  const numberOfInstallments = Number.parseInt(payload.numberOfInstallments, 10);
+  const loanDate = parseDateInput(payload.loanDate);
+  const finalPaymentDate = parseDateInput(payload.finalPaymentDate);
+
+  if (!friendName) errors.push('friendName is required');
+  if (!Number.isFinite(initialValue) || initialValue <= 0) errors.push('initialValue must be greater than 0');
+  if (!Number.isFinite(interestRate) || interestRate < 0) errors.push('interestRate must be 0 or greater');
+  if (!Number.isFinite(latePaymentPenalty) || latePaymentPenalty < 0) errors.push('latePaymentPenalty must be 0 or greater');
+  if (!Number.isInteger(numberOfInstallments) || numberOfInstallments < 1 || numberOfInstallments > 360) {
+    errors.push('numberOfInstallments must be between 1 and 360');
+  }
+  if (Number.isNaN(loanDate.getTime())) errors.push('loanDate is invalid');
+  if (Number.isNaN(finalPaymentDate.getTime())) errors.push('finalPaymentDate is invalid');
+  if (!Number.isNaN(loanDate.getTime()) && !Number.isNaN(finalPaymentDate.getTime()) && finalPaymentDate <= loanDate) {
+    errors.push('finalPaymentDate must be after loanDate');
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    value: {
+      friendName,
+      initialValue,
+      interestRate,
+      latePaymentPenalty,
+      numberOfInstallments,
+      loanDate,
+      finalPaymentDate,
+      notes: String(payload.notes || '').trim(),
+    },
+  };
+}
+
+async function getSavedGoogleTokens() {
+  const snapshot = await db().ref('system/googleCalendarTokens').once('value');
+  return snapshot.val();
+}
+
+async function saveGoogleTokens(tokens) {
+  const currentTokens = await getSavedGoogleTokens();
+  const mergedTokens = {
+    ...(currentTokens || {}),
+    ...(tokens || {}),
+  };
+
+  if (!mergedTokens.refresh_token && currentTokens?.refresh_token) {
+    mergedTokens.refresh_token = currentTokens.refresh_token;
+  }
+
+  await db().ref('system/googleCalendarTokens').set({
+    ...mergedTokens,
+    updatedAt: Date.now(),
+  });
+
+  return mergedTokens;
+}
+
+async function getGoogleCalendarClient() {
+  if (!oauth2Client) {
+    return { error: 'Google Calendar not configured' };
+  }
+
+  const tokens = await getSavedGoogleTokens();
+  if (!tokens?.access_token && !tokens?.refresh_token) {
+    return { error: 'Google Calendar not authenticated' };
+  }
+
+  oauth2Client.setCredentials(tokens);
+
+  try {
+    await oauth2Client.getAccessToken();
+  } catch (error) {
+    return { error: 'Google Calendar token refresh failed', details: error.message };
+  }
+
+  const latestTokens = await saveGoogleTokens(oauth2Client.credentials);
+  oauth2Client.setCredentials(latestTokens);
+
+  return {
+    client: oauth2Client,
+    calendar: google.calendar({ version: 'v3', auth: oauth2Client }),
+  };
 }
 
 // ==================== FIREBASE PASSWORD FUNCTIONS ====================
@@ -130,18 +242,23 @@ async function setPasswordInFirebase(passwordHash) {
 
 // Authentication middleware
 const authMiddleware = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  
-  if (!token) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  const authHeader = req.headers.authorization || '';
+  const [scheme, token] = authHeader.split(' ');
+
+  if (scheme !== 'Bearer' || !token) {
+    return res.status(401).json({ error: 'Unauthorized: missing bearer token' });
   }
 
-  // Simple token validation (in production, use JWT)
-  if (token !== process.env.SESSION_TOKEN) {
-    return res.status(401).json({ error: 'Invalid token' });
+  if (!jwtSecret) {
+    return res.status(500).json({ error: 'JWT_SECRET is not configured' });
   }
 
-  next();
+  try {
+    req.auth = jwt.verify(token, jwtSecret);
+    next();
+  } catch (_) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
 };
 
 // Routes
@@ -158,7 +275,7 @@ function ensureFirebaseReady(req, res, next) {
 }
 
 // 1. Password Setup (first time only)
-app.post('/api/auth/setup-password', ensureFirebaseReady, async (req, res) => {
+app.post('/api/auth/setup-password', ensureFirebaseReady, authLimiter, async (req, res) => {
   try {
     // Check if password already exists in Firebase
     const existingPassword = await getPasswordFromFirebase();
@@ -192,7 +309,7 @@ app.post('/api/auth/setup-password', ensureFirebaseReady, async (req, res) => {
 });
 
 // 2. Password Login
-app.post('/api/auth/login', ensureFirebaseReady, async (req, res) => {
+app.post('/api/auth/login', ensureFirebaseReady, authLimiter, async (req, res) => {
   try {
     // Get password from Firebase
     const passwordHash = await getPasswordFromFirebase();
@@ -213,9 +330,15 @@ app.post('/api/auth/login', ensureFirebaseReady, async (req, res) => {
       return res.status(401).json({ error: 'Invalid password' });
     }
 
-    // Generate a simple session token
-    const token = Buffer.from(`${Date.now()}:${Math.random()}`).toString('base64');
-    process.env.SESSION_TOKEN = token;
+    if (!jwtSecret) {
+      return res.status(500).json({ error: 'JWT_SECRET is not configured' });
+    }
+
+    const token = jwt.sign(
+      { role: 'admin' },
+      jwtSecret,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '12h' }
+    );
 
     res.json({ success: true, token });
   } catch (error) {
@@ -238,6 +361,11 @@ app.get('/api/auth/status', ensureFirebaseReady, async (req, res) => {
 // 4. Create Loan
 app.post('/api/loans', authMiddleware, async (req, res) => {
   try {
+    const validation = validateCreateLoanPayload(req.body);
+    if (!validation.isValid) {
+      return res.status(400).json({ error: validation.errors.join('; ') });
+    }
+
     const {
       friendName,
       initialValue,
@@ -247,51 +375,33 @@ app.post('/api/loans', authMiddleware, async (req, res) => {
       latePaymentPenalty,
       numberOfInstallments,
       notes,
-    } = req.body;
+    } = validation.value;
 
-    const startDate = new Date(loanDate);
-    const endDate = new Date(finalPaymentDate);
-    
-    // Clear hours for proper date comparison
-    startDate.setHours(0, 0, 0, 0);
-    endDate.setHours(0, 0, 0, 0);
-    
-    if (endDate <= startDate) {
-      return res.status(400).json({ error: 'Data final deve ser após a data inicial' });
-    }
-
-    const totalValue = parseFloat(initialValue) * (1 + parseFloat(interestRate) / 100);
-    const profit = totalValue - parseFloat(initialValue);
+    const totalValue = initialValue * (1 + interestRate / 100);
+    const profit = totalValue - initialValue;
+    const installmentValue = totalValue / numberOfInstallments;
+    const installmentDates = generateInstallmentDates(loanDate, finalPaymentDate, numberOfInstallments);
 
     // Create loan using Firebase
     const loan = await createLoan({
       friendName,
-      initialValue: parseFloat(initialValue),
-      interestRate: parseFloat(interestRate),
-      latePaymentPenalty: parseFloat(latePaymentPenalty) || 0,
+      initialValue,
+      interestRate,
+      latePaymentPenalty,
       totalValue,
       profit,
       totalLateFees: 0,
-      loanDate: startDate.toISOString(),
-      finalPaymentDate: endDate.toISOString(),
+      loanDate: loanDate.toISOString(),
+      finalPaymentDate: finalPaymentDate.toISOString(),
       status: 'active',
       notes: notes || '',
     });
 
-    // Calculate and create installments
-    const installmentValue = totalValue / numberOfInstallments;
-    const installmentDays = Math.floor(
-      (endDate - startDate) / (1000 * 60 * 60 * 24)
-    ) / numberOfInstallments;
-
     for (let i = 1; i <= numberOfInstallments; i++) {
-      const dueDate = new Date(startDate);
-      dueDate.setDate(dueDate.getDate() + Math.floor(installmentDays * i));
-
       await createInstallment(loan.id, {
         installmentNumber: i,
         value: installmentValue,
-        dueDate: dueDate.toISOString(),
+        dueDate: installmentDates[i - 1],
         status: 'pending',
         paidDate: null,
       });
@@ -312,7 +422,8 @@ app.get('/api/loans', authMiddleware, async (req, res) => {
     // Calculate payment status for each loan
     const loansWithStatus = loans.map((loan) => ({
       ...loan,
-      paymentStatus: calculatePaymentStatus(loan.installments || {}),
+      status: normalizeLoanStatus(loan.status),
+      paymentStatus: calculatePaymentStatusFromInstallments(getInstallmentArray(loan.installments)),
     }));
 
     res.json(loansWithStatus);
@@ -344,7 +455,8 @@ app.get('/api/loans/:id', authMiddleware, async (req, res) => {
     const loanWithStatus = {
       ...loan,
       installments: installmentsArray,
-      paymentStatus: calculatePaymentStatus(loan.installments || {}),
+      status: normalizeLoanStatus(loan.status),
+      paymentStatus: calculatePaymentStatusFromInstallments(getInstallmentArray(loan.installments)),
     };
 
     res.json(loanWithStatus);
@@ -360,11 +472,22 @@ app.put('/api/loans/:id', authMiddleware, async (req, res) => {
     const { id } = req.params;
     const { friendName, status, notes } = req.body;
 
-    const loan = await updateLoan(id, {
-      friendName,
-      status,
-      notes,
-    });
+    const updates = {};
+    if (typeof friendName === 'string' && friendName.trim()) {
+      updates.friendName = friendName.trim();
+    }
+    if (typeof notes === 'string') {
+      updates.notes = notes.trim();
+    }
+    if (status) {
+      updates.status = normalizeLoanStatus(status);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    const loan = await updateLoan(id, updates);
 
     res.json(loan);
   } catch (error) {
@@ -397,10 +520,23 @@ app.put('/api/installments/:id', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'loanId is required' });
     }
 
+    if (!['pending', 'paid', 'overdue'].includes(status)) {
+      return res.status(400).json({ error: 'status must be one of: pending, paid, overdue' });
+    }
+
     const installment = await updateInstallment(loanId, id, {
       status,
       paidDate: status === 'paid' ? new Date().toISOString() : null,
     });
+
+    const loan = await getLoanById(loanId);
+    if (loan) {
+      const installmentArray = getInstallmentArray(loan.installments);
+      const nextLoanStatus = deriveLoanStatus(installmentArray, loan.status);
+      if (nextLoanStatus !== loan.status) {
+        await updateLoan(loanId, { status: nextLoanStatus });
+      }
+    }
 
     res.json(installment);
   } catch (error) {
@@ -468,7 +604,7 @@ app.get('/api/dashboard/summary', authMiddleware, async (req, res) => {
       
       if (loan.installments) {
         Object.values(loan.installments).forEach((inst) => {
-          if (inst.status === 'overdue') {
+          if (inst.status === 'overdue' || (inst.status === 'pending' && new Date(inst.dueDate) < new Date())) {
             overduePayments += 1;
           }
         });
@@ -515,7 +651,8 @@ app.get('/api/dashboard/profit-trends', authMiddleware, async (req, res) => {
 
     const formattedTrends = trends.map((trend) => ({
       date: trend.date,
-      profit: parseFloat(trend.profit),
+      dailyProfit: parseFloat(trend.dailyProfit),
+      cumulativeProfit: parseFloat(trend.cumulativeProfit),
     }));
 
     res.json(formattedTrends);
@@ -537,13 +674,15 @@ app.get('/api/google/auth-url', (req, res) => {
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: scopes,
+    prompt: 'consent',
+    include_granted_scopes: true,
   });
 
   res.json({ authUrl });
 });
 
 // 15. Google Calendar OAuth Callback
-app.get('/api/google/callback', async (req, res) => {
+app.get('/api/google/callback', ensureFirebaseReady, async (req, res) => {
   try {
     const { code } = req.query;
 
@@ -552,8 +691,8 @@ app.get('/api/google/callback', async (req, res) => {
     }
 
     const { tokens } = await oauth2Client.getToken(code);
-    googleCalendarToken = tokens;
-    oauth2Client.setCredentials(tokens);
+  const savedTokens = await saveGoogleTokens(tokens);
+  oauth2Client.setCredentials(savedTokens);
 
     // Redirect to dashboard with success message
     res.redirect('/?google_sync=success');
@@ -564,14 +703,12 @@ app.get('/api/google/callback', async (req, res) => {
 });
 
 // 16. Sync Loans to Google Calendar
-app.post('/api/google/sync-loans', authMiddleware, async (req, res) => {
+app.post('/api/google/sync-loans', ensureFirebaseReady, authMiddleware, async (req, res) => {
   try {
-    if (!oauth2Client || !googleCalendarToken) {
-      return res.status(400).json({ error: 'Google Calendar not authenticated' });
+    const { calendar, error } = await getGoogleCalendarClient();
+    if (!calendar) {
+      return res.status(400).json({ error: error || 'Google Calendar not authenticated' });
     }
-
-    oauth2Client.setCredentials(googleCalendarToken);
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
     const loans = await getLoans();
 
@@ -607,14 +744,12 @@ app.post('/api/google/sync-loans', authMiddleware, async (req, res) => {
 });
 
 // 17. Sync Installments to Google Calendar
-app.post('/api/google/sync-installments', authMiddleware, async (req, res) => {
+app.post('/api/google/sync-installments', ensureFirebaseReady, authMiddleware, async (req, res) => {
   try {
-    if (!oauth2Client || !googleCalendarToken) {
-      return res.status(400).json({ error: 'Google Calendar not authenticated' });
+    const { calendar, error } = await getGoogleCalendarClient();
+    if (!calendar) {
+      return res.status(400).json({ error: error || 'Google Calendar not authenticated' });
     }
-
-    oauth2Client.setCredentials(googleCalendarToken);
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
     const upcomingPayments = await getUpcomingPayments();
 
@@ -651,8 +786,13 @@ app.post('/api/google/sync-installments', authMiddleware, async (req, res) => {
 });
 
 // 18. Check Google Calendar Auth Status
-app.get('/api/google/auth-status', (req, res) => {
-  res.json({ authenticated: !!googleCalendarToken });
+app.get('/api/google/auth-status', ensureFirebaseReady, async (req, res) => {
+  try {
+    const tokens = await getSavedGoogleTokens();
+    res.json({ authenticated: !!(tokens?.refresh_token || tokens?.access_token) });
+  } catch (_error) {
+    res.status(500).json({ authenticated: false, error: 'Failed to check Google auth status' });
+  }
 });
 
 // 19. Health Check
@@ -671,7 +811,7 @@ app.get('/api/health', async (req, res) => {
       ...basePayload,
       firebase: 'ok',
     });
-  } catch (error) {
+  } catch (_error) {
     return res.status(503).json({
       ...basePayload,
       status: 'degraded',
