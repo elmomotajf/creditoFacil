@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Status](https://img.shields.io/badge/status-active-success.svg)
-![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)
+![Node](https://img.shields.io/badge/node-24.x-brightgreen.svg)
 ![Firebase](https://img.shields.io/badge/firebase-realtime%20database-orange.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
@@ -44,7 +44,7 @@ Um sistema elegante e completo para gerenciar empréstimos pessoais, rastrear pa
 ## 🛠️ Stack Tecnológico
 
 ### Backend
-- **Runtime**: Node.js 18+
+- **Runtime**: Node.js 24.x
 - **Framework**: Express.js
 - **Database**: Firebase Realtime Database
 - **Autenticação**: bcryptjs para hash de senhas
@@ -68,7 +68,7 @@ Um sistema elegante e completo para gerenciar empréstimos pessoais, rastrear pa
 
 Antes de começar, você precisa ter instalado:
 
-- ✅ [Node.js](https://nodejs.org/) versão 18.0.0 ou superior
+- ✅ [Node.js](https://nodejs.org/) versão 24.x
 - ✅ [npm](https://www.npmjs.com/) versão 9.0.0 ou superior
 - ✅ Uma conta no [Firebase](https://console.firebase.google.com/) (gratuita)
 - ⚪ Conta AWS para S3 (opcional, apenas para upload de comprovantes)
@@ -123,11 +123,23 @@ Crie um arquivo `.env` na raiz do projeto:
 
 ```env
 # ==================== FIREBASE ====================
+FIREBASE_TYPE=service_account
+FIREBASE_PROJECT_ID=
+FIREBASE_PRIVATE_KEY_ID=
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_CLIENT_ID=
+FIREBASE_AUTH_URI=https://accounts.google.com/o/oauth2/auth
+FIREBASE_TOKEN_URI=https://oauth2.googleapis.com/token
+FIREBASE_AUTH_PROVIDER_X509_CERT_URL=https://www.googleapis.com/oauth2/v1/certs
+FIREBASE_CLIENT_X509_CERT_URL=
+FIREBASE_UNIVERSE_DOMAIN=googleapis.com
 FIREBASE_DATABASE_URL=https://seu-projeto-default-rtdb.firebaseio.com
 
 # ==================== SERVIDOR ====================
 PORT=3000
 NODE_ENV=development
+JWT_SECRET=
 
 # ==================== AWS S3 (Opcional) ====================
 # Necessário apenas se quiser upload de comprovantes
@@ -262,8 +274,8 @@ payment-tracker/
 ### Arquivos Importantes
 
 - ✅ Use `server-firebase.js` (não `server.js`)
-- ✅ Use `firebase-service-compatible.js` renomeado para `firebase-service.js`
-- ✅ Use `app-fixed.js` renomeado para `public/app.js`
+- ✅ Use `firebase-service.js`
+- ✅ Use `public/app.js`
 - ✅ Nunca commite `serviceAccountKey.json` ou `.env`!
 
 ---
@@ -334,8 +346,22 @@ npm install -g vercel
 #### 3. Configure as Variáveis de Ambiente
 
 No dashboard da Vercel, adicione:
+- `FIREBASE_TYPE`
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_PRIVATE_KEY_ID`
+- `FIREBASE_PRIVATE_KEY`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_CLIENT_ID`
+- `FIREBASE_AUTH_URI`
+- `FIREBASE_TOKEN_URI`
+- `FIREBASE_AUTH_PROVIDER_X509_CERT_URL`
+- `FIREBASE_CLIENT_X509_CERT_URL`
+- `FIREBASE_UNIVERSE_DOMAIN`
 - `FIREBASE_DATABASE_URL`
-- `FIREBASE_CREDENTIALS` (conteúdo do serviceAccountKey.json como string JSON)
+- `JWT_SECRET`
+- `NODE_ENV=production`
+
+⚠️ **Importante**: configure essas variáveis em **Production** (não apenas Preview), ou a API retornará `Firebase is not initialized`.
 
 #### 4. Deploy
 
@@ -393,6 +419,18 @@ cp firebase-service-compatible.js firebase-service.js
 FIREBASE_DATABASE_URL=https://seu-projeto-default-rtdb.firebaseio.com
 ```
 
+### ❌ Erro: "Firebase is not initialized"
+
+**Causa comum**: variáveis do Firebase incompletas no ambiente **Production** da Vercel.
+
+**Checklist**:
+1. Confirme no Vercel se `FIREBASE_PRIVATE_KEY_ID`, `FIREBASE_PRIVATE_KEY`, `FIREBASE_CLIENT_EMAIL` e `FIREBASE_CLIENT_ID` existem em **Production**.
+2. Garanta que `FIREBASE_PRIVATE_KEY` foi colada completa (BEGIN/END PRIVATE KEY).
+3. Faça um novo deploy após alterar variáveis (`Redeploy`).
+4. Teste `GET /api/auth/status` para validar se voltou `200`.
+
+**Observação**: o aviso da Vercel sobre `builds` no `vercel.json` é informativo e não causa esse erro.
+
 ### ❌ Erro: "Permission denied" no Firebase
 
 **Soluções**:
@@ -426,10 +464,8 @@ cp app-fixed.js public/app.js
 Consulte os seguintes arquivos para mais informações:
 
 - 📘 **FIREBASE_SETUP.md** - Guia completo de configuração do Firebase
-- 📗 **FIREBASE_BUGS_E_DIFERENCAS.md** - Diferenças entre Firebase e SQL
-- 📙 **MUDANCAS_APP_JS.md** - Correções aplicadas no frontend
-- 📕 **MELHORIAS_SUGERIDAS.md** - Roadmap com 20+ melhorias futuras
-- 📔 **SOLUCAO_ERRO_ASSERT.md** - Como resolver erro de importação JSON
+- 📗 **GOOGLE_CALENDAR_SETUP.md** - Configuração da integração com Google Calendar
+- 📙 **firebase-rules.json** - Regras de segurança sugeridas para Realtime Database
 
 ---
 
