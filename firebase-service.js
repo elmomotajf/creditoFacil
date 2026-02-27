@@ -6,6 +6,21 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+function normalizePrivateKey(value) {
+  if (!value) {
+    return '';
+  }
+
+  const trimmed = value.trim();
+  const unquoted =
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+      ? trimmed.slice(1, -1)
+      : trimmed;
+
+  return unquoted.replace(/\\n/g, '\n');
+}
+
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -15,7 +30,7 @@ const serviceAccountKey = {
   type: process.env.FIREBASE_TYPE || process.env.TYPE || 'service_account',
   project_id: process.env.FIREBASE_PROJECT_ID || process.env.PROJECT_ID,
   private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID || process.env.PRIVATE_KEY_ID,
-  private_key: (process.env.FIREBASE_PRIVATE_KEY || process.env.PRIVATE_KEY || '').replace(/\\n/g, "\n"),
+  private_key: normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY || process.env.PRIVATE_KEY),
   client_email: process.env.FIREBASE_CLIENT_EMAIL || process.env.CLIENT_EMAIL,
   client_id: process.env.FIREBASE_CLIENT_ID || process.env.CLIENT_ID,
   auth_uri: process.env.FIREBASE_AUTH_URI || process.env.AUTH_URI,
@@ -32,9 +47,24 @@ let firebaseInitError = null;
 export function initializeFirebase() {
   if (!firebaseApp) {
     const databaseURL = process.env.FIREBASE_DATABASE_URL;
+    const requiredVars = [
+      ['FIREBASE_PROJECT_ID', serviceAccountKey.project_id],
+      ['FIREBASE_PRIVATE_KEY_ID', serviceAccountKey.private_key_id],
+      ['FIREBASE_PRIVATE_KEY', serviceAccountKey.private_key],
+      ['FIREBASE_CLIENT_EMAIL', serviceAccountKey.client_email],
+      ['FIREBASE_CLIENT_ID', serviceAccountKey.client_id],
+      ['FIREBASE_DATABASE_URL', databaseURL],
+    ];
+    const missingVars = requiredVars.filter(([, value]) => !value).map(([name]) => name);
 
     if (!databaseURL) {
       console.warn('⚠️ FIREBASE_DATABASE_URL is not configured. Realtime Database calls may fail.');
+    }
+
+    if (missingVars.length > 0) {
+      firebaseInitError = new Error(`Missing Firebase env vars: ${missingVars.join(', ')}`);
+      console.error('❌ Firebase initialization failed:', firebaseInitError.message);
+      return null;
     }
 
     try {
